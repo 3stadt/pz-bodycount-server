@@ -1,0 +1,13 @@
+version: "3"
+
+tasks:
+    run:
+        desc: Run the app
+        cmds:
+        - GOFLAGS=-mod=mod go run main.go
+
+    build:
+        desc: Build the app for current OS
+        cmds:
+        # - GOFLAGS=-mod=mod go build -o bin/gopher-desktop main.go
+        - fyne package
