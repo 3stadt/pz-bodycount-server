@@ -1,2 +1,2 @@
 
-Listen_Address: "localhost:2501"
+Listen_Address: ":2501"

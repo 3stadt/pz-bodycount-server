@@ -27,14 +27,33 @@
 <body>
 <sub>loading...</sub>
 <script>
+    const urlParams = new URLSearchParams(window.location.search);
+
     let root = document.body;
-    let bodyCount = {{ .Data }};
+    let stats = {{ .Data }};
 
     let bc_table = {
         view: () => {
-            return m("table", {class: "data"}, bodyCount.sort((a, b) => {
+            const dataType = urlParams.get('dataType');
+            let items = stats.categories; // default to categories, ignore errors
+            if (dataType === "types") {
+                items = stats.types;
+            }
+
+            items.sort((a, b) => {
                 return b.quantity - a.quantity;
-            }).map((item) => {
+            });
+            const limit = urlParams.get('limit');
+            if (limit) {
+                const limitInt = parseInt(limit);
+                if (limitInt > 0) {
+                    items = items.slice(0, limitInt);
+                } else {
+                    console.error("'" + limit + "' is not a valid parameter for limit");
+                }
+            }
+
+            return m("table", {class: "data"}, items.map((item) => {
                 let name = item.name.charAt(0).toUpperCase() + item.name.slice(1);
                 return m("tr", {class: "row"},
                     m("td", {class: "name"}, name),
@@ -50,11 +69,11 @@
 
         let conn = new WebSocket("ws://{{.Host}}/ws");
         conn.onclose = function (evt) {
-            data.textContent = 'Connection closed';
+            console.log("Connection closed");
         };
         conn.onmessage = function (evt) {
-            bodyCount = JSON.parse(evt.data);
-            console.log(bodyCount);
+            stats = JSON.parse(evt.data);
+            console.log(stats);
             m.redraw();
         };
     })();

@@ -18,36 +18,16 @@ import (
 	"gopkg.in/yaml.v3"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
-
-type configData struct {
-	ListenAddress string `yaml:"Listen_Address"`
-	Template      string `yaml:"Template_File"`
-	ModDataDir    string `yaml:"PZ_Mod_Data_Dir"`
-}
-
-type WeaponType struct {
-	Name     string `json:"name"`
-	Quantity int    `json:"quantity"`
-}
-
-type WeaponCategory struct {
-	Name     string `json:"name"`
-	Quantity int    `json:"quantity"`
-}
-
-type pzStats struct {
-	Total      int              `json:"total"`
-	Categories []WeaponCategory `json:"categories"`
-	Types      []WeaponType     `json:"types"`
-}
 
 var stats = pzStats{
 	Total:      0,
@@ -81,7 +61,6 @@ func main() {
 	statsUpdated = make(chan struct{}, 100)
 	updateFromFile = make(chan string, 100)
 	clients = map[*websocket.Conn]struct{}{}
-
 	// Read config from file
 	data, err := os.ReadFile("config.txt")
 	if err != nil {
@@ -92,6 +71,9 @@ func main() {
 	}
 	if conf.ListenAddress == "" {
 		waitForInputThenExit("The config file is invalid. Please set Listen_Address according to the documentation.")
+	}
+	if strings.HasPrefix(conf.ListenAddress, ":") {
+		conf.ListenAddress = fmt.Sprintf("%s%s", GetOutboundIP().String(), conf.ListenAddress)
 	}
 
 	pzDir = conf.ModDataDir
@@ -170,7 +152,7 @@ func wsWriter() {
 		select {
 		case <-statsUpdated:
 			for conn := range clients {
-				conn.WriteJSON(stats.Categories)
+				conn.WriteJSON(stats)
 			}
 		}
 	}
@@ -185,7 +167,7 @@ func (conf *configData) startHttpServer(wg *sync.WaitGroup) *http.Server {
 		var data bytes.Buffer
 		enc := json.NewEncoder(&data)
 		enc.SetEscapeHTML(false)
-		err := enc.Encode(stats.Categories)
+		err := enc.Encode(stats)
 		if err != nil {
 			log.Fatalf("startHttpServer(), Encode(): %v", err)
 		}
@@ -193,7 +175,9 @@ func (conf *configData) startHttpServer(wg *sync.WaitGroup) *http.Server {
 		err = t.Execute(w, struct {
 			Host string
 			Data template.JS
-		}{conf.ListenAddress, template.JS(data.String())})
+		}{conf.ListenAddress, template.JS(
+			strings.TrimSpace(data.String()),
+		)})
 		if err != nil {
 			log.Fatalf("startHttpServer(), Execute(): %v", err)
 		}
@@ -320,4 +304,21 @@ func waitForInputThenExit(message string) {
 	input := bufio.NewScanner(os.Stdin)
 	input.Scan()
 	os.Exit(0)
+}
+
+// GetOutboundIP
+// Get the IP of the interface used for outbound traffic, taken from SO.
+// See https://stackoverflow.com/a/37382208
+func GetOutboundIP() net.IP {
+	conn, err := net.Dial("udp", "8.8.8.8:80") // Doesn't actually connect bc udp is used
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func(conn net.Conn) {
+		_ = conn.Close()
+	}(conn)
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return localAddr.IP
 }
