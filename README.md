@@ -36,19 +36,35 @@ descending order.
 You can add `?dataType=types` to the URL to show weapon types instead. Also, you can use `?limit=5` to show only the
 first 5 entries, change 5 to whatever you want.
 
+Additionally, you can add a refresh in Milliseconds, with the minimum value of 1000 for performance reasons. A 5 second refresh would be `refresh=5000`.  
+
 If you don't know how URLs are built, here are some examples, using `http://192.168.0.333:2501/` as host. **This host
 will be different on your machine!**
+
+### Refresh every 3 seconds
+
+```
+http://192.168.0.333:2501/?refresh=3000
+```
 
 ### Show weapon categories, limited to the top 3
 
 ```
 http://192.168.0.333:2501/?limit=3
+
+with refresh:
+
+http://192.168.0.333:2501/?limit=3&refresh=3000
 ```
 
 ### Show weapon types
 
 ```
 http://192.168.0.333:2501/?dataType=types
+
+with refresh:
+
+http://192.168.0.333:2501/?dataType=types&refresh=3000
 ```
 
 ### Show weapon types, limited to the top 3
@@ -59,4 +75,8 @@ http://192.168.0.333:2501/?dataType=types&limit=3
 also valid:
 
 http://192.168.0.333:2501/?limit=3&dataType=types
+
+also valid:
+
+http://192.168.0.333:2501/?refresh=3000&limit=3&dataType=types
 ```

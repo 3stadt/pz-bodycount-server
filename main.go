@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	_ "embed"
@@ -13,8 +12,6 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"github.com/fsnotify/fsnotify"
-	"github.com/gorilla/websocket"
 	"gopkg.in/yaml.v3"
 	"html/template"
 	"log"
@@ -22,7 +19,6 @@ import (
 	"net/http"
 	"os"
 	"os/user"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,37 +36,36 @@ var pzDir string
 //go:embed template.gohtml
 var statsTemplate string
 
-var statsUpdated chan struct{} // keep channel minimal, we need only notification
-var updateFromFile chan string
-
-var clients map[*websocket.Conn]struct{}
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true },
-}
-
 const (
 	CatFile   = "mod_bodycount_categories.json"
 	TypeFile  = "mod_bodycount_types.json"
 	TotalFile = "mod_bodycount_total.txt"
 )
 
+var fLog *log.Logger
+
 func main() {
+
+	// open file and create if non-existent, also emptying it
+	file, err := os.OpenFile("pz-bodycount-server-log.txt", os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	fLog = log.New(file, "", log.LstdFlags)
+
 	var conf configData
-	statsUpdated = make(chan struct{}, 100)
-	updateFromFile = make(chan string, 100)
-	clients = map[*websocket.Conn]struct{}{}
 	// Read config from file
 	data, err := os.ReadFile("config.txt")
 	if err != nil {
-		waitForInputThenExit(err.Error())
+		fLog.Fatal(err)
 	}
 	if err := yaml.Unmarshal(data, &conf); err != nil {
-		waitForInputThenExit(err.Error())
+		fLog.Fatal(err)
 	}
 	if conf.ListenAddress == "" {
-		waitForInputThenExit("The config file is invalid. Please set Listen_Address according to the documentation.")
+		fLog.Fatal("The config file is invalid. Please set Listen_Address according to the documentation.")
 	}
 	if strings.HasPrefix(conf.ListenAddress, ":") {
 		conf.ListenAddress = fmt.Sprintf("%s%s", GetOutboundIP().String(), conf.ListenAddress)
@@ -80,31 +75,18 @@ func main() {
 	if pzDir == "" {
 		usr, err := user.Current()
 		if err != nil {
-			waitForInputThenExit(err.Error())
+			fLog.Fatal(err)
 		}
 		pzDir = usr.HomeDir + "\\Zomboid\\Lua"
 	}
 
-	updateStatsFromFiles()
-
 	if conf.Template != "" {
 		tpl, err := os.ReadFile(conf.Template)
 		if err != nil {
-			waitForInputThenExit(err.Error())
+			fLog.Fatal(err)
 		}
 		statsTemplate = string(tpl)
 	}
-
-	go func() {
-		for {
-			select {
-			case <-updateFromFile:
-				updateStatsFromFiles()
-				statsUpdated <- struct{}{}
-			}
-		}
-	}()
-	go watchPzDir(pzDir)
 
 	httpServerExitDone := &sync.WaitGroup{}
 	httpServerExitDone.Add(1)
@@ -134,42 +116,19 @@ func main() {
 	httpServerExitDone.Wait()
 }
 
-func wsReader(ws *websocket.Conn) {
-	defer func() {
-		delete(clients, ws)
-		ws.Close()
-	}()
-	for {
-		mt, _, err := ws.ReadMessage()
-		if err != nil || mt == websocket.CloseMessage {
-			break // Exit the loop if the client tries to close the connection or the connection with the interrupted client
-		}
-	}
-}
-
-func wsWriter() {
-	for {
-		select {
-		case <-statsUpdated:
-			for conn := range clients {
-				conn.WriteJSON(stats)
-			}
-		}
-	}
-}
-
 func (conf *configData) startHttpServer(wg *sync.WaitGroup) *http.Server {
 	srv := &http.Server{Addr: conf.ListenAddress}
 
 	t := template.Must(template.New("stats").Parse(statsTemplate))
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		updateStatsFromFiles()
 		var data bytes.Buffer
 		enc := json.NewEncoder(&data)
 		enc.SetEscapeHTML(false)
 		err := enc.Encode(stats)
 		if err != nil {
-			log.Fatalf("startHttpServer(), Encode(): %v", err)
+			fLog.Fatalf("startHttpServer(), Encode(): %v", err)
 		}
 
 		err = t.Execute(w, struct {
@@ -179,21 +138,8 @@ func (conf *configData) startHttpServer(wg *sync.WaitGroup) *http.Server {
 			strings.TrimSpace(data.String()),
 		)})
 		if err != nil {
-			log.Fatalf("startHttpServer(), Execute(): %v", err)
+			fLog.Fatalf("startHttpServer(), Execute(): %v\n", err)
 		}
-	})
-
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		ws, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			if _, ok := err.(websocket.HandshakeError); !ok {
-				log.Println(err)
-			}
-			return
-		}
-		clients[ws] = struct{}{}
-		go wsWriter()
-		wsReader(ws)
 	})
 
 	go func() {
@@ -202,7 +148,7 @@ func (conf *configData) startHttpServer(wg *sync.WaitGroup) *http.Server {
 		// always returns error. ErrServerClosed on graceful close
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 			// unexpected error. port in use?
-			log.Fatalf("startHttpServer(), ListenAndServe(): %v", err)
+			fLog.Fatalf("startHttpServer(), ListenAndServe(): %v\n", err)
 		}
 	}()
 
@@ -214,36 +160,33 @@ func updateStatsFromFiles() {
 
 	jsonData, err := readStatsFile(TypeFile)
 	if err != nil {
-		log.Printf("readStatsFile(TypeFile): %v", err)
 		return
 	}
 	stats.Types = []WeaponType{}
 	err = json.Unmarshal(jsonData, &stats.Types)
 	if err != nil {
-		log.Printf("json.Unmarshal(jsonData, &stats.Types): %v", err)
+		fLog.Printf("json.Unmarshal(jsonData, &stats.Types): %v", err)
 		return
 	}
 
 	jsonData, err = readStatsFile(CatFile)
 	if err != nil {
-		log.Printf("readStatsFile(CatFile): %v", err)
 		return
 	}
 	stats.Categories = []WeaponCategory{}
 	err = json.Unmarshal(jsonData, &stats.Categories)
 	if err != nil {
-		log.Printf("json.Unmarshal(jsonData, &stats.Categories): %v", err)
+		fLog.Printf("json.Unmarshal(jsonData, &stats.Categories): %v", err)
 		return
 	}
 
 	totalData, err := readStatsFile(TotalFile)
 	if err != nil {
-		log.Printf("readStatsFile(TotalFile): %v", err)
 		return
 	}
 	total, err := strconv.Atoi(string(totalData))
 	if err != nil {
-		log.Printf("strconv.Atoi(string(totalData)): %v", err)
+		fLog.Printf("strconv.Atoi(string(totalData)): %v", err)
 		return
 	}
 	stats.Total = total
@@ -252,7 +195,7 @@ func updateStatsFromFiles() {
 func readStatsFile(filename string) ([]byte, error) {
 	data, err := os.ReadFile(pzDir + "\\" + filename)
 	if err != nil {
-		log.Printf("os.ReadFile() for %s with data %q: %v", pzDir+"\\"+filename, data, err)
+		fLog.Printf("os.ReadFile() for %s with data %q: %v", pzDir+"\\"+filename, data, err)
 		return data, err
 	}
 
@@ -260,7 +203,7 @@ func readStatsFile(filename string) ([]byte, error) {
 	for string(data) == "" && tryCount <= 9 {
 		data, err = os.ReadFile(pzDir + "\\" + filename)
 		if err != nil {
-			log.Printf("os.ReadFile() for %s with data %q: %v", pzDir+"\\"+filename, data, err)
+			fLog.Printf("os.ReadFile() for %s with data %q: %v", pzDir+"\\"+filename, data, err)
 			return data, err
 		}
 		tryCount++
@@ -269,53 +212,19 @@ func readStatsFile(filename string) ([]byte, error) {
 	return data, err
 }
 
-func watchPzDir(dir string) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer watcher.Close()
-
-	done := make(chan bool)
-	go func() {
-		for {
-			select {
-			case event := <-watcher.Events:
-				if event.Op&fsnotify.Write == fsnotify.Write {
-					updateFromFile <- filepath.Base(event.Name)
-				}
-			case err := <-watcher.Errors:
-				waitForInputThenExit(err.Error())
-			}
-		}
-	}()
-
-	err = watcher.Add(dir)
-	if err != nil {
-		waitForInputThenExit(err.Error())
-	}
-	<-done
-}
-
-func waitForInputThenExit(message string) {
-	fmt.Print("\n\nERROR: " + message + "\n\n")
-	fmt.Print("The server FAILED and is NOT RUNNING!\n")
-	fmt.Print("Press any key to exit...")
-	input := bufio.NewScanner(os.Stdin)
-	input.Scan()
-	os.Exit(0)
-}
-
 // GetOutboundIP
 // Get the IP of the interface used for outbound traffic, taken from SO.
 // See https://stackoverflow.com/a/37382208
 func GetOutboundIP() net.IP {
 	conn, err := net.Dial("udp", "8.8.8.8:80") // Doesn't actually connect bc udp is used
 	if err != nil {
-		log.Fatal(err)
+		fLog.Fatal(err)
 	}
 	defer func(conn net.Conn) {
-		_ = conn.Close()
+		err = conn.Close()
+		if err != nil {
+			fLog.Fatal(err)
+		}
 	}(conn)
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)

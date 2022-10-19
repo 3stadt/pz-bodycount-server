@@ -52,6 +52,15 @@
                     console.error("'" + limit + "' is not a valid parameter for limit");
                 }
             }
+            const refresh = urlParams.get("refresh");
+            if (refresh) {
+                const refreshInt = parseInt(refresh);
+                if (refreshInt > 1000) {
+                    setInterval(function () {
+                        location.reload();
+                    }, refreshInt);
+                }
+            }
 
             return m("table", {class: "data"}, items.map((item) => {
                 let name = item.name.charAt(0).toUpperCase() + item.name.slice(1);
@@ -66,16 +75,6 @@
 
     (function () {
         m.mount(root, bc_table);
-
-        let conn = new WebSocket("ws://{{.Host}}/ws");
-        conn.onclose = function (evt) {
-            console.log("Connection closed");
-        };
-        conn.onmessage = function (evt) {
-            stats = JSON.parse(evt.data);
-            console.log(stats);
-            m.redraw();
-        };
     })();
 </script>
 </body>
