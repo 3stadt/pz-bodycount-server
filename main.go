@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -19,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,8 +27,9 @@ import (
 
 var stats = pzStats{
 	Total:      0,
-	Categories: []WeaponCategory{},
-	Types:      []WeaponType{},
+	Categories: []WeaponData{},
+	Types:      []WeaponData{},
+	ChartData:  "",
 }
 
 var pzDir string
@@ -36,11 +37,23 @@ var pzDir string
 //go:embed template.gohtml
 var statsTemplate string
 
+//go:embed template_chart.gohtml
+var chartTemplate string
+
+//go:embed chart.min.js
+var chartJs string
+
 const (
-	CatFile   = "mod_bodycount_categories.json"
-	TypeFile  = "mod_bodycount_types.json"
-	TotalFile = "mod_bodycount_total.txt"
+	ChartDataFile = "mod_bodycount_per_day_data.txt"
+	CatFile       = "mod_bodycount_categories.json"
+	TypeFile      = "mod_bodycount_types.json"
+	TotalFile     = "mod_bodycount_total.txt"
 )
+
+type indexData struct {
+	tpl  *template.Template
+	conf *configData
+}
 
 var fLog *log.Logger
 
@@ -80,14 +93,6 @@ func main() {
 		pzDir = usr.HomeDir + "\\Zomboid\\Lua"
 	}
 
-	if conf.Template != "" {
-		tpl, err := os.ReadFile(conf.Template)
-		if err != nil {
-			fLog.Fatal(err)
-		}
-		statsTemplate = string(tpl)
-	}
-
 	httpServerExitDone := &sync.WaitGroup{}
 	httpServerExitDone.Add(1)
 	srv := conf.startHttpServer(httpServerExitDone)
@@ -119,26 +124,24 @@ func main() {
 func (conf *configData) startHttpServer(wg *sync.WaitGroup) *http.Server {
 	srv := &http.Server{Addr: conf.ListenAddress}
 
-	t := template.Must(template.New("stats").Parse(statsTemplate))
+	iD := indexData{
+		tpl:  template.Must(template.New("stats").Parse(statsTemplate)),
+		conf: conf,
+	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		updateStatsFromFiles()
-		var data bytes.Buffer
-		enc := json.NewEncoder(&data)
-		enc.SetEscapeHTML(false)
-		err := enc.Encode(stats)
-		if err != nil {
-			fLog.Fatalf("startHttpServer(), Encode(): %v", err)
-		}
+	iDc := indexData{
+		tpl:  template.Must(template.New("chart").Parse(chartTemplate)),
+		conf: conf,
+	}
 
-		err = t.Execute(w, struct {
-			Host string
-			Data template.JS
-		}{conf.ListenAddress, template.JS(
-			strings.TrimSpace(data.String()),
-		)})
+	http.HandleFunc("/", iD.HandleIndex)
+	http.HandleFunc("/chart", iDc.HandleChart)
+
+	http.HandleFunc("/chart.min.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		_, err := w.Write([]byte(chartJs))
 		if err != nil {
-			fLog.Fatalf("startHttpServer(), Execute(): %v\n", err)
+			fLog.Println("startHttpServer(), w.Write([]byte(chartJs)): %v\n", err)
 		}
 	})
 
@@ -148,7 +151,7 @@ func (conf *configData) startHttpServer(wg *sync.WaitGroup) *http.Server {
 		// always returns error. ErrServerClosed on graceful close
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 			// unexpected error. port in use?
-			fLog.Fatalf("startHttpServer(), ListenAndServe(): %v\n", err)
+			fLog.Println("startHttpServer(), ListenAndServe(): %v\n", err)
 		}
 	}()
 
@@ -162,7 +165,7 @@ func updateStatsFromFiles() {
 	if err != nil {
 		return
 	}
-	stats.Types = []WeaponType{}
+	stats.Types = []WeaponData{}
 	err = json.Unmarshal(jsonData, &stats.Types)
 	if err != nil {
 		fLog.Printf("json.Unmarshal(jsonData, &stats.Types): %v", err)
@@ -173,12 +176,18 @@ func updateStatsFromFiles() {
 	if err != nil {
 		return
 	}
-	stats.Categories = []WeaponCategory{}
+	stats.Categories = []WeaponData{}
 	err = json.Unmarshal(jsonData, &stats.Categories)
 	if err != nil {
 		fLog.Printf("json.Unmarshal(jsonData, &stats.Categories): %v", err)
 		return
 	}
+
+	chartData, err := readStatsFile(ChartDataFile)
+	if err != nil {
+		return
+	}
+	stats.ChartData = string(chartData)
 
 	totalData, err := readStatsFile(TotalFile)
 	if err != nil {
@@ -230,4 +239,57 @@ func GetOutboundIP() net.IP {
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 
 	return localAddr.IP
+}
+
+func (iD *indexData) HandleChart(w http.ResponseWriter, r *http.Request) {
+	updateStatsFromFiles()
+
+	iD.tpl = template.Must(template.ParseFiles("template_chart.gohtml")) // TODO REMOVE
+	err := iD.tpl.Execute(w, struct {
+		Host string
+		Data template.JS
+	}{iD.conf.ListenAddress, template.JS(stats.ChartData)})
+	if err != nil {
+		fLog.Println("HandleChart(), Execute(): %v\n", err)
+	}
+}
+
+func (iD *indexData) HandleIndex(w http.ResponseWriter, r *http.Request) {
+	updateStatsFromFiles()
+
+	var data []WeaponData
+	var err error
+
+	dataType := r.URL.Query().Get("dataType")
+
+	if dataType == "types" {
+		data = stats.Types
+	} else {
+		data = stats.Categories
+	}
+
+	sort.SliceStable(data, func(i, j int) bool {
+		return data[i].Quantity > data[j].Quantity
+	})
+
+	limitParam := r.URL.Query().Get("limit")
+	limit := 0
+	if limitParam != "" {
+		limit, err = strconv.Atoi(limitParam)
+		if err != nil {
+			fLog.Println("HandleIndex(), strconv.Atoi(limitParam): %v\n", err)
+		}
+	}
+
+	if limit > 0 && limit < len(data) {
+		data = data[:limit]
+	}
+
+	err = iD.tpl.Execute(w, struct {
+		Host string
+		Data []WeaponData
+	}{iD.conf.ListenAddress, data})
+	if err != nil {
+		fLog.Println("HandleIndex(), Execute(): %v\n", err)
+	}
 }

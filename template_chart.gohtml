@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PZ Stats</title>
+    <style>
+        .data {
+            color: grey;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .quantity {
+            text-align: end;
+        }
+    </style>
+</head>
+
+<body>
+
+<canvas id="kills-per-day" width="900" height="400"></canvas>
+
+
+<script type="application/javascript" src="/chart.min.js"></script>
+<script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const refresh = urlParams.get("refresh");
+    let chartType = urlParams.get("chartType");
+    if(!chartType){
+        chartType = "bar"
+    }
+
+    const ctx = document.getElementById('kills-per-day');
+    const myChart = new Chart(ctx, {
+        type: chartType,
+        data: {
+            datasets: [{
+                label: "Kills per day",
+                data: {{.Data}},
+                backgroundColor: 'rgba(255, 0, 0, 0.7)',
+                borderColor: 'rgba(255, 0, 0, 1)',
+                borderWidth: 1,
+            }],
+        },
+        options: {
+            normalized: true,
+            animation: false,
+            scales: {
+                y: {
+                    type: 'linear',
+                    beginAtZero: true,
+                },
+            },
+        },
+    });
+
+
+    (function () {
+        if (refresh) {
+            const refreshInt = parseInt(refresh);
+            if (refreshInt > 1000) {
+                setInterval(function () {
+                    location.reload();
+                }, refreshInt);
+            }
+        }
+    })();
+</script>
+</body>
+
+</html>
