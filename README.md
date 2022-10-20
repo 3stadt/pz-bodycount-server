@@ -80,3 +80,13 @@ also valid:
 
 http://192.168.0.333:2501/?refresh=3000&limit=3&dataType=types
 ```
+
+## Bar Chart
+
+Adding `/chart` to your host will provide you with a visual representation of how many Zeds you've killed per day.
+So using the example from above, use `http://192.168.0.333:2501/chart` to see the graphic.
+
+### Parameters
+
+In case you don't want to use the bar chart, you can display a line chart instead: `http://192.168.0.333:2501/chart?chartType=line` .
+Also, the `refresh` parameter works the same as in the examples above. 
