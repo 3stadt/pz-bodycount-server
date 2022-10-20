@@ -243,8 +243,7 @@ func GetOutboundIP() net.IP {
 
 func (iD *indexData) HandleChart(w http.ResponseWriter, r *http.Request) {
 	updateStatsFromFiles()
-
-	iD.tpl = template.Must(template.ParseFiles("template_chart.gohtml")) // TODO REMOVE
+	
 	err := iD.tpl.Execute(w, struct {
 		Host string
 		Data template.JS
