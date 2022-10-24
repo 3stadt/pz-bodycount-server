@@ -28,11 +28,14 @@
     const urlParams = new URLSearchParams(window.location.search);
     const refresh = urlParams.get("refresh");
     let chartType = urlParams.get("chartType");
-    if(!chartType){
-        chartType = "bar"
+    if (!chartType) {
+        chartType = "bar";
     }
 
     const ctx = document.getElementById('kills-per-day');
+    Chart.defaults.color = '{{.FontColor}}';
+    Chart.defaults.font.size = '{{.FontSize}}';
+    Chart.defaults.font.family = '{{.FontFamily}}';
     const myChart = new Chart(ctx, {
         type: chartType,
         data: {

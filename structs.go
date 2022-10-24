@@ -1,10 +1,11 @@
 package main
 
 type configData struct {
-	ListenAddress string `yaml:"Listen_Address"`
-	Template      string `yaml:"Template_File"`
-	ChartTemplate string `yaml:"Template_File_Chart"`
-	ModDataDir    string `yaml:"PZ_Mod_Data_Dir"`
+	ListenAddress   string `yaml:"Listen_Address"`
+	ModDataDir      string `yaml:"PZ_Mod_Data_Dir"`
+	FontColor       string `yaml:"Font_Color"`
+	ChartFontFamily string `yaml:"Chart_Font_Family"`
+	ChartFontSize   string `yaml:"Chart_Font_Size"`
 }
 
 type WeaponData struct {

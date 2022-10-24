@@ -1,2 +1,5 @@
 
 Listen_Address: ":2501"
+Font_Color: "white"
+Chart_Font_Family: "'Helvetica Neue', 'Helvetica', 'Arial', sans-serif"
+Chart_Font_Size: "14px"

@@ -50,7 +50,27 @@ const (
 	TotalFile     = "mod_bodycount_total.txt"
 )
 
-type indexData struct {
+type pzTime struct {
+	time.Time
+}
+
+func (pzt *pzTime) UnmarshalJSON(b []byte) (err error) {
+	s := string(b)
+	s = strings.Trim(s, "\"")
+	t, err := time.Parse("2.1. 2006", s)
+	if err != nil {
+		return err
+	}
+	pzt.Time = t
+	return nil
+}
+
+type chartData struct {
+	XVal pzTime `json:"x"`
+	YVal int    `json:"y"`
+}
+
+type tplData struct {
 	tpl  *template.Template
 	conf *configData
 }
@@ -82,6 +102,15 @@ func main() {
 	}
 	if strings.HasPrefix(conf.ListenAddress, ":") {
 		conf.ListenAddress = fmt.Sprintf("%s%s", GetOutboundIP().String(), conf.ListenAddress)
+	}
+	if conf.FontColor == "" {
+		conf.FontColor = "grey"
+	}
+	if conf.ChartFontFamily == "" {
+		conf.ChartFontFamily = "'Helvetica Neue', 'Helvetica', 'Arial', sans-serif"
+	}
+	if conf.ChartFontSize == "" {
+		conf.ChartFontSize = "12"
 	}
 
 	pzDir = conf.ModDataDir
@@ -124,18 +153,18 @@ func main() {
 func (conf *configData) startHttpServer(wg *sync.WaitGroup) *http.Server {
 	srv := &http.Server{Addr: conf.ListenAddress}
 
-	iD := indexData{
+	tplDataStats := tplData{
 		tpl:  template.Must(template.New("stats").Parse(statsTemplate)),
 		conf: conf,
 	}
 
-	iDc := indexData{
+	tplDataChart := tplData{
 		tpl:  template.Must(template.New("chart").Parse(chartTemplate)),
 		conf: conf,
 	}
 
-	http.HandleFunc("/", iD.HandleIndex)
-	http.HandleFunc("/chart", iDc.HandleChart)
+	http.HandleFunc("/", tplDataStats.HandleIndex)
+	http.HandleFunc("/chart", tplDataChart.HandleChart)
 
 	http.HandleFunc("/chart.min.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript")
@@ -241,19 +270,58 @@ func GetOutboundIP() net.IP {
 	return localAddr.IP
 }
 
-func (iD *indexData) HandleChart(w http.ResponseWriter, r *http.Request) {
+func (td *tplData) HandleChart(w http.ResponseWriter, r *http.Request) {
 	updateStatsFromFiles()
-	
-	err := iD.tpl.Execute(w, struct {
-		Host string
-		Data template.JS
-	}{iD.conf.ListenAddress, template.JS(stats.ChartData)})
+
+	cd := []chartData{}
+	err := json.Unmarshal([]byte(stats.ChartData), &cd)
+	if err != nil {
+		fLog.Println("HandleChart(), json.Unmarshal([]byte(stats.ChartData), &cd): %v\n", err)
+		w.Write([]byte(fmt.Sprintf("HandleChart(), json.Unmarshal([]byte(stats.ChartData), &cd): %v\n", err)))
+		return
+	}
+
+	sort.SliceStable(cd, func(i, j int) bool {
+		return cd[i].XVal.Time.Before(cd[j].XVal.Time)
+	})
+
+	limitDays := r.URL.Query().Get("limitDays")
+	if limitDays != "" {
+		limit, err := strconv.Atoi(limitDays)
+		if err == nil {
+			if limit > 0 && limit <= len(cd) {
+				cd = cd[len(cd)-limit:]
+			}
+		} else {
+			fLog.Println("HandleChart(), strconv.Atoi(limitDays), &cd): %v\n", err)
+		}
+	}
+
+	cdBytes, err := json.Marshal(cd)
+	if err != nil {
+		fLog.Println("HandleChart(), json.Marshal(cd): %v\n", err)
+	}
+	cdString := string(cdBytes)
+
+	err = td.tpl.Execute(w, struct {
+		Host       string
+		Data       template.JS
+		FontColor  string
+		FontSize   string
+		FontFamily string
+	}{
+		td.conf.ListenAddress,
+		template.JS(cdString),
+		td.conf.FontColor,
+		td.conf.ChartFontSize,
+		td.conf.ChartFontFamily,
+	})
 	if err != nil {
 		fLog.Println("HandleChart(), Execute(): %v\n", err)
 	}
 }
 
-func (iD *indexData) HandleIndex(w http.ResponseWriter, r *http.Request) {
+func (td *tplData) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	updateStatsFromFiles()
 
 	var data []WeaponData
@@ -284,10 +352,11 @@ func (iD *indexData) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		data = data[:limit]
 	}
 
-	err = iD.tpl.Execute(w, struct {
-		Host string
-		Data []WeaponData
-	}{iD.conf.ListenAddress, data})
+	err = td.tpl.Execute(w, struct {
+		Host      string
+		Data      []WeaponData
+		FontColor string
+	}{td.conf.ListenAddress, data, td.conf.FontColor})
 	if err != nil {
 		fLog.Println("HandleIndex(), Execute(): %v\n", err)
 	}

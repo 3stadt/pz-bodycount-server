@@ -18,8 +18,10 @@ Here is an example of a full config file:
 
 ```
 Listen_Address: ":2501"
-Template_File: "my_template.gohtml"
 PZ_Mod_Data_Dir: "some path"
+Font_Color: "#FFF"
+Chart_Font_Family: "Impact, sans-serif"
+Chart_Font_Size: "22px"
 ```
 
 Where `PZ_Mod_Data_Dir` is something you would only need to change if you know exactly what you are doing.
