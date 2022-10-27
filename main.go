@@ -54,7 +54,7 @@ type pzTime struct {
 	time.Time
 }
 
-func (pzt *pzTime) UnmarshalJSON(b []byte) (err error) {
+func (pzt *pzTime) UnmarshalJSON(b []byte) error {
 	s := string(b)
 	s = strings.Trim(s, "\"")
 	t, err := time.Parse("2.1. 2006", s)
@@ -63,6 +63,10 @@ func (pzt *pzTime) UnmarshalJSON(b []byte) (err error) {
 	}
 	pzt.Time = t
 	return nil
+}
+
+func (pzt *pzTime) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + pzt.Time.Format("2.1.06") + `"`), nil
 }
 
 type chartData struct {
@@ -212,11 +216,11 @@ func updateStatsFromFiles() {
 		return
 	}
 
-	chartData, err := readStatsFile(ChartDataFile)
+	chartDataBytes, err := readStatsFile(ChartDataFile)
 	if err != nil {
 		return
 	}
-	stats.ChartData = string(chartData)
+	stats.ChartData = string(chartDataBytes)
 
 	totalData, err := readStatsFile(TotalFile)
 	if err != nil {
