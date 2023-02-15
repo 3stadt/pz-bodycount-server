@@ -88,6 +88,9 @@ http://192.168.0.333:2501/?refresh=3000&limit=3&dataType=types
 Adding `/chart` to your host will provide you with a visual representation of how many Zeds you've killed per day.
 So using the example from above, use `http://192.168.0.333:2501/chart` to see the graphic.
 
+You can also limit the chart to only show the last X days by using the parameter "limitDays".
+So using the example from above, use `http://192.168.0.333:2501/chart?limitDays=30` to only see the last 30 days.
+
 ### Parameters
 
 In case you don't want to use the bar chart, you can display a line chart instead: `http://192.168.0.333:2501/chart?chartType=line` .

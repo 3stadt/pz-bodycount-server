@@ -4,14 +4,8 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/theme"
-	"fyne.io/fyne/v2/widget"
-	"gopkg.in/yaml.v3"
 	"html/template"
 	"log"
 	"net"
@@ -23,6 +17,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
+	"gopkg.in/yaml.v3"
 )
 
 var stats = pzStats{
@@ -59,14 +61,14 @@ func (pzt *pzTime) UnmarshalJSON(b []byte) error {
 	s = strings.Trim(s, "\"")
 	t, err := time.Parse("2.1. 2006", s)
 	if err != nil {
-		return err
+		return errors.New(fmt.Sprintf("Trying to parse %q: %s", string(b), err))
 	}
 	pzt.Time = t
 	return nil
 }
 
 func (pzt *pzTime) MarshalJSON() ([]byte, error) {
-	return []byte(`"` + pzt.Time.Format("2.1.06") + `"`), nil
+	return []byte(`"` + pzt.Time.Format("2.1. 2006") + `"`), nil
 }
 
 type chartData struct {
@@ -174,7 +176,7 @@ func (conf *configData) startHttpServer(wg *sync.WaitGroup) *http.Server {
 		w.Header().Set("Content-Type", "application/javascript")
 		_, err := w.Write([]byte(chartJs))
 		if err != nil {
-			fLog.Println("startHttpServer(), w.Write([]byte(chartJs)): %v\n", err)
+			fLog.Printf("startHttpServer(), w.Write([]byte(chartJs)): %v\n", err)
 		}
 	})
 
@@ -184,7 +186,7 @@ func (conf *configData) startHttpServer(wg *sync.WaitGroup) *http.Server {
 		// always returns error. ErrServerClosed on graceful close
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 			// unexpected error. port in use?
-			fLog.Println("startHttpServer(), ListenAndServe(): %v\n", err)
+			fLog.Printf("startHttpServer(), ListenAndServe(): %v\n", err)
 		}
 	}()
 
@@ -280,7 +282,7 @@ func (td *tplData) HandleChart(w http.ResponseWriter, r *http.Request) {
 	cd := []chartData{}
 	err := json.Unmarshal([]byte(stats.ChartData), &cd)
 	if err != nil {
-		fLog.Println("HandleChart(), json.Unmarshal([]byte(stats.ChartData), &cd): %v\n", err)
+		fLog.Printf("HandleChart(), json.Unmarshal([]byte(stats.ChartData), &cd): %v\n", err)
 		w.Write([]byte(fmt.Sprintf("HandleChart(), json.Unmarshal([]byte(stats.ChartData), &cd): %v\n", err)))
 		return
 	}
@@ -297,13 +299,13 @@ func (td *tplData) HandleChart(w http.ResponseWriter, r *http.Request) {
 				cd = cd[len(cd)-limit:]
 			}
 		} else {
-			fLog.Println("HandleChart(), strconv.Atoi(limitDays), &cd): %v\n", err)
+			fLog.Printf("HandleChart(), strconv.Atoi(limitDays), &cd): %v\n", err)
 		}
 	}
 
 	cdBytes, err := json.Marshal(cd)
 	if err != nil {
-		fLog.Println("HandleChart(), json.Marshal(cd): %v\n", err)
+		fLog.Printf("HandleChart(), json.Marshal(cd): %v\n", err)
 	}
 	cdString := string(cdBytes)
 
@@ -321,7 +323,7 @@ func (td *tplData) HandleChart(w http.ResponseWriter, r *http.Request) {
 		td.conf.ChartFontFamily,
 	})
 	if err != nil {
-		fLog.Println("HandleChart(), Execute(): %v\n", err)
+		fLog.Printf("HandleChart(), Execute(): %v\n", err)
 	}
 }
 
@@ -348,7 +350,7 @@ func (td *tplData) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	if limitParam != "" {
 		limit, err = strconv.Atoi(limitParam)
 		if err != nil {
-			fLog.Println("HandleIndex(), strconv.Atoi(limitParam): %v\n", err)
+			fLog.Printf("HandleIndex(), strconv.Atoi(limitParam): %v\n", err)
 		}
 	}
 
@@ -362,6 +364,6 @@ func (td *tplData) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		FontColor string
 	}{td.conf.ListenAddress, data, td.conf.FontColor})
 	if err != nil {
-		fLog.Println("HandleIndex(), Execute(): %v\n", err)
+		fLog.Printf("HandleIndex(), Execute(): %v\n", err)
 	}
 }

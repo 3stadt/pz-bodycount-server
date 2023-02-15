@@ -4,11 +4,10 @@ tasks:
     run:
         desc: Run the app
         cmds:
-        - GOFLAGS=-mod=mod go run .
+          - go run .
 
     build:
         desc: Build and compress the app for windows
         cmds:
-        # - GOFLAGS=-mod=mod go build -o bin/gopher-desktop .
-        - fyne package
-        - upx -9 pz-bodycount-server.exe
+          - fyne package
+          - upx -9 pz-bodycount-server.exe
