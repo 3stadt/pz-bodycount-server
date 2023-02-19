@@ -27,6 +27,7 @@
 <script>
     const urlParams = new URLSearchParams(window.location.search);
     const refresh = urlParams.get("refresh");
+    const data = {{.Data}};
     let chartType = urlParams.get("chartType");
     if (!chartType) {
         chartType = "bar";
@@ -36,12 +37,13 @@
     Chart.defaults.color = '{{.FontColor}}';
     Chart.defaults.font.size = '{{.FontSize}}';
     Chart.defaults.font.family = '{{.FontFamily}}';
-    const myChart = new Chart(ctx, {
+    new Chart(ctx, {
         type: chartType,
         data: {
+            labels: data.map(row=> String(row.date)),
             datasets: [{
                 label: "Kills per day",
-                data: {{.Data}},
+                data: data.map(row => row.count),
                 backgroundColor: 'rgba(255, 0, 0, 0.7)',
                 borderColor: 'rgba(255, 0, 0, 1)',
                 borderWidth: 1,

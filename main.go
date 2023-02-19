@@ -4,7 +4,6 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -52,28 +51,9 @@ const (
 	TotalFile     = "mod_bodycount_total.txt"
 )
 
-type pzTime struct {
-	time.Time
-}
-
-func (pzt *pzTime) UnmarshalJSON(b []byte) error {
-	s := string(b)
-	s = strings.Trim(s, "\"")
-	t, err := time.Parse("2.1. 2006", s)
-	if err != nil {
-		return errors.New(fmt.Sprintf("Trying to parse %q: %s", string(b), err))
-	}
-	pzt.Time = t
-	return nil
-}
-
-func (pzt *pzTime) MarshalJSON() ([]byte, error) {
-	return []byte(`"` + pzt.Time.Format("2.1. 2006") + `"`), nil
-}
-
 type chartData struct {
-	XVal pzTime `json:"x"`
-	YVal int    `json:"y"`
+	Date  string `json:"date"`
+	Count int    `json:"count"`
 }
 
 type tplData struct {
@@ -279,37 +259,27 @@ func GetOutboundIP() net.IP {
 func (td *tplData) HandleChart(w http.ResponseWriter, r *http.Request) {
 	updateStatsFromFiles()
 
-	cd := []chartData{}
-	err := json.Unmarshal([]byte(stats.ChartData), &cd)
-	if err != nil {
-		fLog.Printf("HandleChart(), json.Unmarshal([]byte(stats.ChartData), &cd): %v\n", err)
-		w.Write([]byte(fmt.Sprintf("HandleChart(), json.Unmarshal([]byte(stats.ChartData), &cd): %v\n", err)))
-		return
-	}
-
-	sort.SliceStable(cd, func(i, j int) bool {
-		return cd[i].XVal.Time.Before(cd[j].XVal.Time)
-	})
-
 	limitDays := r.URL.Query().Get("limitDays")
+	dataNew := stats.ChartData
 	if limitDays != "" {
 		limit, err := strconv.Atoi(limitDays)
 		if err == nil {
-			if limit > 0 && limit <= len(cd) {
-				cd = cd[len(cd)-limit:]
+			dataParts := strings.Split(stats.ChartData, "},{")
+			if limit > 0 && limit <= len(dataParts) {
+				dataNew = "[{" + strings.Join(dataParts[len(dataParts)-limit:], "},{")
 			}
 		} else {
 			fLog.Printf("HandleChart(), strconv.Atoi(limitDays), &cd): %v\n", err)
 		}
 	}
 
-	cdBytes, err := json.Marshal(cd)
-	if err != nil {
-		fLog.Printf("HandleChart(), json.Marshal(cd): %v\n", err)
-	}
-	cdString := string(cdBytes)
+	// cdBytes, err := json.Marshal(cd)
+	// if err != nil {
+	// 	fLog.Printf("HandleChart(), json.Marshal(cd): %v\n", err)
+	// }
+	// cdString := string(cdBytes)
 
-	err = td.tpl.Execute(w, struct {
+	err := td.tpl.Execute(w, struct {
 		Host       string
 		Data       template.JS
 		FontColor  string
@@ -317,7 +287,7 @@ func (td *tplData) HandleChart(w http.ResponseWriter, r *http.Request) {
 		FontFamily string
 	}{
 		td.conf.ListenAddress,
-		template.JS(cdString),
+		template.JS(dataNew),
 		td.conf.FontColor,
 		td.conf.ChartFontSize,
 		td.conf.ChartFontFamily,
